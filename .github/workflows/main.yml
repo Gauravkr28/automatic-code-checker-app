@@ -162,12 +162,12 @@ jobs:
       # Loads the Docker image from the tar archive into the Docker daemon
       run: docker load -i code-checker-frontend.tar
 
-    # NEW: Set up Node.js for frontend before installing Vercel CLI
     - name: Set up Node.js for Vercel CLI
       uses: actions/setup-node@v4
       with:
         node-version: '20' # Ensure this matches your project's requirement
-        cache: 'npm' # Enable caching for npm dependencies
+        # Removed cache and cache-dependency-path as they are not needed for global CLI installation
+        # and were causing the 'package-lock.json not found' error.
 
     - name: Install Vercel CLI
       run: npm install -g vercel # Install Vercel CLI in the runner
