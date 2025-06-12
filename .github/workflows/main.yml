@@ -93,7 +93,7 @@ jobs:
       uses: docker/login-action@v3
       with:
         username: gauravkr28
-        password: dckr_pat_XlkRZF_K7crZ_AD1nXJ6ubiLN2Y
+        password: ${{ secrets.DOCKER_PASSWORD }} 
 
     - name: Tag and Push Backend Docker Image
       # Replace 'your-dockerhub-username' with your actual Docker Hub username
