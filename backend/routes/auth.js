@@ -1,94 +1,343 @@
 const express = require('express');
 const router = express.Router();
-const bcrypt = require('bcryptjs');
+const Analysis = require('../models/Analysis');
+const PDFDocument = require('pdfkit');
+const { exec } = require('child_process');
+const fs = require('fs/promises');
+const path = require('path');
+const os = require('os');
 const jwt = require('jsonwebtoken');
-const User = require('../models/User'); // Import the new User model
+const winston = require('winston'); // Import winston for logging
 
-// @route   POST api/auth/register
-router.post('/register', async (req, res) => {
-  const { username, password } = req.body;
+// Logger setup (basic, typically would import from a centralized logger utility)
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.simple(),
+  transports: [
+    new winston.transports.Console(),
+  ],
+});
+
+
+// Middleware to protect routes (authenticates JWT)
+const authMiddleware = (req, res, next) => {
+  // Get token from header
+  const token = req.header('Authorization')?.split(' ')[1];
+
+  // Check if no token
+  if (!token) {
+    return res.status(401).json({ msg: 'No token, authorization denied' });
+  }
+
+  // Verify token
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded.user; // Attach user info from token to request
+    next();
+  } catch (err) {
+    logger.error('Token verification failed:', err.message); // Using logger
+    res.status(401).json({ msg: 'Token is not valid' });
+  }
+};
+
+
+/**
+ * Runs static analysis on the provided JavaScript code using ESLint.
+ * @param {string} codeContent The JavaScript code string to analyze.
+ * @returns {Promise<{issues: Array, suggestions: Array}>} An object containing found issues and suggestions.
+ */
+async function runStaticAnalysis(codeContent) {
+  const issues = [];
+  const suggestions = [];
+  let tempDir;
 
   try {
-    // Check if user already exists in MongoDB
-    let user = await User.findOne({ username });
-    if (user) {
-      return res.status(400).json({ msg: 'User already exists' });
+    tempDir = path.join(os.tmpdir(), `code-checker-${Date.now()}`);
+    await fs.mkdir(tempDir, { recursive: true });
+    const tempFilePath = path.join(tempDir, 'user_code.js');
+    await fs.writeFile(tempFilePath, codeContent);
+
+    const eslintCliPath = path.join(__dirname, '../node_modules/.bin/eslint');
+    const eslintConfigPath = path.join(__dirname, '../.eslintrc.json');
+
+    const command = `${eslintCliPath} --format json --config "${eslintConfigPath}" "${tempFilePath}" --no-error-on-unmatched-pattern`;
+
+    let stdout = '';
+    let stderr = '';
+    try {
+      const { stdout: execStdout, stderr: execStderr } = await new Promise((resolve) => {
+        exec(command, { timeout: 15000 }, (error, stdout, stderr) => {
+          // ESLint exits with error code if linting issues are found, but stdout still contains the JSON report.
+          // We resolve the promise here so that the parsing logic can proceed.
+          resolve({ stdout, stderr });
+        });
+      });
+      stdout = execStdout;
+      stderr = execStderr;
+    } catch (execError) {
+      logger.error('ESLint CLI execution error:', execError); // Using logger
+      issues.push({
+        id: 'eslint-cli-error',
+        type: 'error',
+        message: `ESLint execution failed: ${execError.message}. Ensure ESLint is installed and configured correctly on the server.`,
+        line: 0,
+      });
+      return { issues, suggestions };
     }
 
-    // Create a new user instance
-    user = new User({
-      username,
-      password, // Password will be hashed before saving
+    if (stderr) {
+      logger.warn('ESLint stderr output (non-JSON):', stderr); // Using logger
+    }
+
+    let parsedEslintReport;
+    try {
+      parsedEslintReport = JSON.parse(stdout.trim());
+    } catch (parseError) {
+      logger.error('Failed to parse ESLint JSON output (raw output below):', stdout, parseError); // Using logger
+      issues.push({
+        id: 'analysis-parse-error',
+        type: 'error',
+        message: 'Backend failed to parse ESLint results. This might be due to severe syntax errors in your submitted code or an unexpected ESLint output format.',
+        line: 0,
+      });
+      const eslintSyntaxErrorMatch = stdout.match(/Parsing error: (.*) \(\d+:\d+\)/);
+      if (eslintSyntaxErrorMatch && eslintSyntaxErrorMatch[1]) {
+        issues.push({
+          id: 'code-syntax-error',
+          type: 'error',
+          message: `Your code has a syntax error: ${eslintSyntaxErrorMatch[1]}. Please fix it.`,
+          line: 0,
+        });
+      }
+      return { issues, suggestions };
+    }
+
+    if (Array.isArray(parsedEslintReport) && parsedEslintReport.length > 0 &&
+      parsedEslintReport[0] && typeof parsedEslintReport[0] === 'object' &&
+      Array.isArray(parsedEslintReport[0].messages)) {
+      parsedEslintReport[0].messages.forEach(msg => {
+        const type = msg.severity === 2 ? 'error' : msg.severity === 1 ? 'warning' : 'info';
+        issues.push({
+          id: String(`eslint-${msg.ruleId || 'unknown'}-${msg.line || 0}-${msg.column || 0}`),
+          type: String(type),
+          message: String(msg.message),
+          line: Number(msg.line) || 0,
+        });
+      });
+    } else {
+      logger.warn('ESLint returned valid JSON but with an unexpected structure for messages:', parsedEslintReport); // Using logger
+      issues.push({
+        id: 'eslint-output-structure-invalid',
+        type: 'warning',
+        message: 'ESLint analysis returned an unexpected structure. Results might be incomplete.',
+        line: 0,
+      });
+    }
+
+    // Generic Code Quality Suggestions
+    suggestions.push({ id: 'sugg-modularity', message: 'Consider breaking down large functions or files into smaller, more focused modules for better readability and maintainability.' });
+    suggestions.push({ id: 'sugg-naming-conventions', message: 'Apply consistent naming conventions (e.g., camelCase for variables, PascalCase for components) throughout your code for clarity.' });
+    suggestions.push({ id: 'sugg-comments', message: 'Add meaningful comments to explain complex logic, choices, or edge cases, but avoid commenting on obvious code.' });
+    suggestions.push({ id: 'sugg-dead-code', message: 'Regularly review and remove dead or unreachable code to reduce complexity and bundle size.' });
+    suggestions.push({ id: 'sugg-error-handling-robust', message: 'Implement robust error handling for all asynchronous operations and potential failure points to ensure graceful degradation.' });
+
+    // Conditional suggestions
+    if (codeContent.includes('// TODO')) {
+      suggestions.push({ id: 'sugg-todo-comment', message: 'Found a `// TODO` comment. Address pending tasks or remove if no longer relevant.' });
+    }
+    if (!codeContent.includes('try') && codeContent.includes('catch') && (codeContent.includes('fetch') || codeContent.includes('axios') || codeContent.includes('async'))) {
+      suggestions.push({ id: 'sugg-async-error-handling', message: 'For asynchronous operations (like fetch/axios or async functions), ensure proper error handling with `try...catch` blocks to prevent unhandled promise rejections.' });
+    } else if (!codeContent.includes('try') && codeContent.includes('catch') && (codeContent.includes('read') || codeContent.includes('write') || codeContent.includes('open'))) {
+      suggestions.push({ id: 'sugg-io-error-handling', message: 'Consider using `try...catch` for error handling in I/O operations (like file reads/writes) to handle potential failures gracefully.' });
+    } else if (!codeContent.includes('try') && codeContent.includes('catch')) {
+      suggestions.push({ id: 'sugg-general-error-handling', message: 'Consider using `try...catch` for error handling in potentially risky or complex operations to prevent application crashes and provide graceful fallbacks.' });
+    }
+
+  } catch (err) {
+    logger.error('An unexpected error occurred in runStaticAnalysis (outer catch):', err); // Using logger
+    issues.push({
+      id: 'internal-analysis-failure',
+      type: 'error',
+      message: `An unexpected internal error prevented full code analysis: ${err.message}. Please report this.`,
+      line: 0,
+    });
+  } finally {
+    if (tempDir) {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(cleanupErr => {
+        logger.error('Failed to clean up temporary directory:', cleanupErr); // Using logger
+      });
+    }
+  }
+
+  return { issues, suggestions };
+}
+
+// @route   POST api/analysis
+router.post('/', authMiddleware, async (req, res) => {
+  const { code } = req.body;
+  const userId = req.user.id;
+
+  if (!code) {
+    return res.status(400).json({ msg: 'Code is required for analysis' });
+  }
+
+  try {
+    const { issues, suggestions } = await runStaticAnalysis(code);
+
+    const newAnalysis = new Analysis({
+      userId,
+      originalCode: code,
+      issues: issues,
+      suggestions: suggestions,
     });
 
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
-    user.password = await bcrypt.hash(password, salt);
+    await newAnalysis.save();
 
-    // Save user to MongoDB
-    await user.save();
-    console.log('Registered user:', user.username, 'to MongoDB');
-
-    // Create JWT token
-    const payload = {
-      user: {
-        id: user.id, // Mongoose creates an '_id' field, which we use as 'id'
-        username: user.username,
-      },
-    };
-
-    jwt.sign(
-      payload,
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }, // Token validity is 7 days
-      (err, token) => {
-        if (err) throw err;
-        res.json({ token, user: { id: user.id, username: user.username } });
-      }
-    );
+    res.json(newAnalysis);
   } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Server Error during registration');
+    logger.error('Error saving analysis to DB or in analysis route:', err); // Using logger
+
+    let clientErrorMessage = 'An internal server error occurred during analysis.';
+
+    if (err.name === 'ValidationError') {
+      const errorPaths = Object.keys(err.errors);
+      if (errorPaths.length > 0) {
+        const firstErrorPath = errorPaths[0];
+        const firstErrorMessage = err.errors[firstErrorPath].message;
+        clientErrorMessage = `Database Validation Error: ${firstErrorPath} - ${firstErrorMessage}`;
+      } else {
+        clientErrorMessage = `Database Validation Error: ${err.message}`;
+      }
+    } else if (err.message) {
+      clientErrorMessage = `Server Error: ${err.message}`;
+    }
+
+    res.status(500).json({ msg: clientErrorMessage });
   }
 });
 
-// @route   POST api/auth/login
-router.post('/login', async (req, res) => {
-  const { username, password } = req.body;
+// @route   GET api/analysis/history
+router.get('/history', authMiddleware, async (req, res) => {
+  try {
+    const analysisHistory = await Analysis.find({ userId: req.user.id }).sort({ timestamp: -1 });
+    res.json(analysisHistory);
+  } catch (err) {
+    logger.error('Error fetching analysis history:', err); // Using logger
+    res.status(500).json({ msg: `Failed to fetch history: ${err.message}` });
+  }
+});
+
+// @route   GET api/analysis/report/:id
+router.get('/report/:id', authMiddleware, async (req, res) => {
+  try {
+    const analysis = await Analysis.findById(req.params.id);
+
+    if (!analysis || analysis.userId !== req.user.id) {
+      return res.status(404).json({ msg: 'Analysis not found or not authorized' });
+    }
+
+    const doc = new PDFDocument();
+    const filename = `analysis_report_${req.params.id}.pdf`;
+
+    res.setHeader('Content-disposition', 'attachment; filename="' + filename + '"');
+    res.setHeader('Content-type', 'application/pdf');
+
+    doc.pipe(res);
+
+    doc.fontSize(25).text('Code Analysis Report', {
+      align: 'center',
+    });
+    doc.moveDown();
+
+    doc.fontSize(12).text(`Date: ${new Date(analysis.timestamp).toLocaleString()}`);
+    doc.moveDown();
+
+    doc.fontSize(16).text('Original Code:', { underline: true });
+    doc.fontSize(10).font('Courier').text(analysis.originalCode, {
+      width: 500,
+      align: 'left',
+      indent: 20,
+    });
+    doc.moveDown();
+
+    doc.fontSize(16).font('Helvetica').text(`Issues (${analysis.issues.length}):`, { underline: true });
+    if (analysis.issues.length > 0) {
+      analysis.issues.forEach((issue) => {
+        doc.fontSize(10).text(`  - [${issue.type.toUpperCase()}] ${issue.message} (Line: ${issue.line || 'N/A'})`, { indent: 20 });
+      });
+    } else {
+      doc.fontSize(10).text('  No issues found.', { indent: 20 });
+    }
+    doc.moveDown();
+
+    doc.fontSize(16).text(`Enhancement Suggestions (${analysis.suggestions.length}):`, { underline: true });
+    if (analysis.suggestions.length > 0) {
+      analysis.suggestions.forEach((sugg) => {
+        doc.fontSize(10).text(`  - ${sugg.message}`, { indent: 20 });
+      });
+    } else {
+      doc.fontSize(10).text('  No suggestions.', { indent: 20 });
+    }
+
+    doc.end();
+
+  } catch (err) {
+    logger.error('Error generating PDF report:', err); // Using logger
+    res.status(500).json({ msg: `Failed to generate report: ${err.message}` });
+  }
+});
+
+// @route   PUT api/analysis/:id
+router.put('/:id', authMiddleware, async (req, res) => {
+  const { code } = req.body;
+  const userId = req.user.id;
+
+  if (!code) {
+    return res.status(400).json({ msg: 'Code is required for update analysis' });
+  }
 
   try {
-    // Check if user exists in MongoDB
-    let user = await User.findOne({ username });
-    if (!user) {
-      return res.status(400).json({ msg: 'Invalid Credentials' });
+    let analysis = await Analysis.findById(req.params.id);
+
+    if (!analysis || analysis.userId !== userId) {
+      return res.status(404).json({ msg: 'Analysis not found or not authorized' });
     }
 
-    // Check password
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(400).json({ msg: 'Invalid Credentials' });
-    }
+    const { issues, suggestions } = await runStaticAnalysis(code);
 
-    // Create JWT token
-    const payload = {
-      user: {
-        id: user.id,
-        username: user.username,
-      },
-    };
+    analysis.originalCode = code;
+    analysis.issues = issues;
+    analysis.suggestions = suggestions;
+    analysis.timestamp = new Date();
 
-    jwt.sign(
-      payload,
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }, // Token validity is 7 days
-      (err, token) => {
-        if (err) throw err;
-        res.json({ token, user: { id: user.id, username: user.username } });
-      }
-    );
+    await analysis.save();
+
+    res.json(analysis);
+
   } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Server Error during login');
+    logger.error('Error updating analysis:', err); // Using logger
+    res.status(500).json({ msg: `Failed to update analysis: ${err.message}` });
+  }
+});
+
+
+// @route   DELETE api/analysis/:id
+router.delete('/:id', authMiddleware, async (req, res) => {
+  const userId = req.user.id;
+
+  try {
+    const analysis = await Analysis.findById(req.params.id);
+
+    if (!analysis || analysis.userId !== userId) {
+      return res.status(404).json({ msg: 'Analysis not found or not authorized' });
+    }
+
+    await Analysis.deleteOne({ _id: req.params.id });
+
+    res.json({ msg: 'Analysis removed' });
+  } catch (err) {
+    logger.error('Error deleting analysis:', err); // Using logger
+    res.status(500).json({ msg: `Failed to delete analysis: ${err.message}` });
   }
 });
 
