@@ -7,8 +7,13 @@ WORKDIR /app
 # Copy package.json and package-lock.json
 COPY package*.json ./
 
-# Install dependencies
-RUN npm install
+# Install dependencies with retry logic
+# This command will attempt to run `npm install`.
+# If `npm install` fails (returns a non-zero exit code), it will loop up to 5 times.
+# In each retry, it will sleep for `retry_count * 2` seconds before retrying.
+# If `npm install` succeeds at any point, the loop breaks.
+# If all retries fail, the entire RUN command will fail.
+RUN npm install || retry=1 && while [ $retry -le 5 ]; do sleep $((retry*2)); npm install && break || retry=$((retry+1)); done
 
 # Copy the rest of the application code
 COPY . .
