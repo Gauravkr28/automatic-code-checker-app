@@ -38,6 +38,17 @@ jobs:
       # Builds the Docker image for the backend using the Dockerfile in ./backend
       run: docker build -t code-checker-backend:latest ./backend
 
+    - name: Save Docker Image
+      # Saves the Docker image to a tar archive
+      run: docker save code-checker-backend:latest -o code-checker-backend.tar
+
+    - name: Upload Backend Docker Image Artifact
+      # Uploads the saved Docker image as an artifact, making it available to other jobs
+      uses: actions/upload-artifact@v4
+      with:
+        name: backend-docker-image
+        path: code-checker-backend.tar
+
     # SonarQube Scan (Conceptual - requires SonarQube server and secrets)
     # This step would typically push analysis results to a SonarQube server.
     # You'd need a SonarQube server URL, project key, and token configured in your GitHub secrets.
@@ -78,6 +89,17 @@ jobs:
       # Builds the Docker image for the frontend using the Dockerfile in ./frontend
       run: docker build -t code-checker-frontend:latest ./frontend
 
+    - name: Save Frontend Docker Image
+      # Saves the Docker image to a tar archive
+      run: docker save code-checker-frontend:latest -o code-checker-frontend.tar
+
+    - name: Upload Frontend Docker Image Artifact
+      # Uploads the saved Docker image as an artifact, making it available to other jobs
+      uses: actions/upload-artifact@v4
+      with:
+        name: frontend-docker-image
+        path: code-checker-frontend.tar
+
   # Deployment jobs (These need real deployment logic)
   # They depend on the successful completion of build-and-test jobs.
   deploy-backend:
@@ -87,6 +109,17 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+
+    - name: Download Backend Docker Image Artifact
+      # Downloads the Docker image artifact created by build-and-test-backend
+      uses: actions/download-artifact@v4
+      with:
+        name: backend-docker-image
+        path: . # Download to current directory
+
+    - name: Load Backend Docker Image
+      # Loads the Docker image from the tar archive into the Docker daemon
+      run: docker load -i code-checker-backend.tar
 
     - name: Login to Docker Hub
       # This uses a GitHub Action specifically for Docker login
@@ -120,6 +153,17 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+
+    - name: Download Frontend Docker Image Artifact
+      # Downloads the Docker image artifact created by build-and-test-frontend
+      uses: actions/download-artifact@v4
+      with:
+        name: frontend-docker-image
+        path: . # Download to current directory
+
+    - name: Load Frontend Docker Image
+      # Loads the Docker image from the tar archive into the Docker daemon
+      run: docker load -i code-checker-frontend.tar
 
     - name: Install Vercel CLI
       run: npm install -g vercel # Install Vercel CLI in the runner
