@@ -1,0 +1,41 @@
+    {
+        "env": {
+            "node": true,
+            "es2021": true
+        },
+        "parserOptions": {
+            "ecmaVersion": 12,
+            "sourceType": "module"
+        },
+        "rules": {
+            "no-var": "error", // Prefer const/let over var
+            "no-console": "warn", // Warn about console.log
+            "eqeqeq": "error", // Enforce strict equality (===)
+            "no-unused-vars": [
+                "warn",
+                {
+                    "args": "none"
+                }
+            ], // Warn on unused variables
+            "prefer-const": "warn", // Suggest const for variables that are never reassigned
+            "no-trailing-spaces": "warn", // No trailing whitespace
+            "indent": [
+                "error",
+                2,
+                {
+                    "SwitchCase": 1
+                }
+            ], // 2-space indent
+            "quotes": [
+                "error",
+                "single"
+            ], // Single quotes
+            "semi": [
+                "error",
+                "always"
+            ], // Always use semicolons
+            "no-eval": "error", // Prevent eval (security risk)
+            "no-implied-eval": "error", // Prevent implied eval
+            "no-new-func": "error" // Prevent new Function (security risk)
+        }
+    }

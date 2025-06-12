@@ -1,0 +1,59 @@
+{
+    "env": {
+        "browser": true,
+        "es2021": true,
+        "jest": true,
+        "node": true
+    },
+    "extends": [
+        "eslint:recommended",
+        "plugin:react/recommended",
+        "plugin:react-hooks/recommended"
+    ],
+    "parserOptions": {
+        "ecmaFeatures": {
+            "jsx": true
+        },
+        "ecmaVersion": 12,
+        "sourceType": "module"
+    },
+    "plugins": [
+        "react",
+        "react-hooks"
+    ],
+    "rules": {
+        "no-var": "error", // Prefer const/let over var
+        "no-console": "warn", // Warn about console.log
+        "eqeqeq": "error", // Enforce strict equality (===)
+        "no-unused-vars": [
+            "warn",
+            {
+                "args": "none"
+            }
+        ], // Warn on unused variables
+        "prefer-const": "warn", // Suggest const for variables that are never reassigned
+        "no-trailing-spaces": "warn", // No trailing whitespace
+        "indent": [
+            "error",
+            4,
+            {
+                "SwitchCase": 1
+            }
+        ], // Enforce 4-space indentation
+        "quotes": [
+            "error",
+            "double"
+        ], // Enforce double quotes for strings
+        "semi": [
+            "error",
+            "always"
+        ], // Enforce semicolons at the end of statements
+        "react/react-in-jsx-scope": "off", // Disable for React 17+ JSX transform
+        "react/prop-types": "off" // Disable prop-types validation if you don't use it
+    },
+    "settings": {
+        "react": {
+            "version": "detect"
+        }
+    }
+}
