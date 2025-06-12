@@ -30,11 +30,9 @@ jobs:
       # Ensure your backend/.eslintrc.json is configured as desired.
       run: npm run lint --prefix backend
 
-    - name: Run backend tests (conceptual)
-      # Placeholder for actual backend unit/integration tests.
-      # You would replace `echo "Running backend tests..."` with `npm test --prefix backend`
-      # if you had a test script defined in backend/package.json.
-      run: echo "Running backend tests..."
+    - name: Run backend tests
+      # Now running the actual test script defined in backend/package.json
+      run: npm test --prefix backend
 
     - name: Build backend Docker image
       # Builds the Docker image for the backend using the Dockerfile in ./backend
@@ -72,16 +70,15 @@ jobs:
       # This step runs ESLint for the frontend.
       run: npm run lint --prefix frontend
 
-    - name: Run frontend tests (conceptual)
-      # Placeholder for actual frontend unit/integration tests.
-      # You would replace `echo "Running frontend tests..."` with `npm test --prefix frontend`
-      run: echo "Running frontend tests..."
+    - name: Run frontend tests
+      # Now running the actual test script defined in frontend/package.json
+      run: npm test --prefix frontend
 
     - name: Build frontend Docker image
       # Builds the Docker image for the frontend using the Dockerfile in ./frontend
       run: docker build -t code-checker-frontend:latest ./frontend
 
-  # Deployment jobs (Conceptual - these need real deployment logic)
+  # Deployment jobs (These need real deployment logic)
   # They depend on the successful completion of build-and-test jobs.
   deploy-backend:
     needs: build-and-test-backend # This job runs only after backend build/test is successful
@@ -91,27 +88,30 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Login to Docker Hub (if pushing image)
-      # Uncomment and replace with your Docker registry login details if you plan to push Docker images.
-      # uses: docker/login-action@v3
-      # with:
-      #   username: ${{ secrets.DOCKER_USERNAME }}
-      #   password: ${{ secrets.DOCKER_PASSWORD }}
-      run: echo "Logging into Docker Hub..." # Placeholder for actual login
+    - name: Login to Docker Hub
+      # This uses a GitHub Action specifically for Docker login
+      uses: docker/login-action@v3
+      with:
+        username: gauravkr28
+        password: dckr_pat_XlkRZF_K7crZ_AD1nXJ6ubiLN2Y
 
     - name: Tag and Push Backend Docker Image
-      # Uncomment and replace 'your-dockerhub-username' with your actual Docker Hub username
-      # if you want to push your Docker image to a registry.
-      # run: docker tag code-checker-backend:latest your-dockerhub-username/code-checker-backend:latest && docker push your-dockerhub-username/code-checker-backend:latest
-      run: echo "Tagging and pushing backend Docker image..." # Placeholder
+      # Replace 'your-dockerhub-username' with your actual Docker Hub username
+      run: |
+        docker tag code-checker-backend:latest your-dockerhub-username/code-checker-backend:latest
+        docker push your-dockerhub-username/code-checker-backend:latest
 
-    - name: Deploy to Render (Conceptual)
-      # This step would typically use Render's API or CLI to trigger a new deploy.
-      # You'd need Render API token and service ID configured in your GitHub secrets.
-      # Example with Render CLI (install & configure in CI environment):
-      # - run: npm install -g @renderinc/cli
-      # - run: render deploy --serviceId ${{ secrets.RENDER_BACKEND_SERVICE_ID }}
-      run: echo "Deploying backend to Render..." # Placeholder
+    - name: Deploy to Render
+      # This step uses the Render CLI, which needs to be installed in the CI environment.
+      # Make sure to install `@renderinc/cli` and set up the RENDER_API_KEY secret.
+      # You'd typically install it globally in a previous step or use a pre-built action.
+      # For simplicity, we'll install it inline for this example.
+      run: |
+        npm install -g @renderinc/cli
+        render deploy --serviceId ${{ secrets.RENDER_BACKEND_SERVICE_ID }} --apiKey ${{ secrets.RENDER_API_KEY }}
+      env:
+        # RENDER_API_KEY will be automatically passed to the 'render' command
+        RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }} # Ensure this secret is set in GitHub
 
   deploy-frontend:
     needs: build-and-test-frontend # This job runs only after frontend build/test is successful
@@ -121,22 +121,33 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Login to Docker Hub (if pushing frontend image)
+      # Uncomment if you also push frontend image to Docker Hub
+      # uses: docker/login-action@v3
+      # with:
+      #   username: ${{ secrets.DOCKER_USERNAME }}
+      #   password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Tag and Push Frontend Docker Image (Optional)
+      # Uncomment and replace 'your-dockerhub-username' if you want to push your frontend Docker image.
+      # run: |
+      #   docker tag code-checker-frontend:latest your-dockerhub-username/code-checker-frontend:latest
+      #   docker push your-dockerhub-username/code-checker-frontend:latest
+
     - name: Install Vercel CLI
       run: npm install -g vercel # Install Vercel CLI in the runner
 
-    - name: Deploy to Vercel (Conceptual)
+    - name: Deploy to Vercel
       # You'd need Vercel API token and org/project IDs in secrets.
       # Ensure frontend build directory exists (default is 'build' for Create React App)
       # The 'vercel' command automatically deploys the 'build' folder.
       # To enable: uncomment the vercel commands and set up VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID secrets.
-      # - run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
-      # - run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
-      # - run: vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }}
       run: |
-        echo "Deploying frontend to Vercel..."
-        # Example Vercel command structure (needs actual setup on Vercel)
-        # vercel --token=${{ secrets.VERCEL_TOKEN }} --prod --confirm
+        vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+        vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+        vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }}
       env: # Environment variables for Vercel CLI
         VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
         VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
