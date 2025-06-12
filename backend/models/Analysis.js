@@ -297,7 +297,7 @@ router.put('/:id', authMiddleware, async (req, res) => {
     }
 
     try {
-        let analysis = await Analysis.findById(req.params.id);
+        const analysis = await Analysis.findById(req.params.id);
 
         if (!analysis || analysis.userId !== userId) {
             return res.status(404).json({ msg: 'Analysis not found or not authorized' });
