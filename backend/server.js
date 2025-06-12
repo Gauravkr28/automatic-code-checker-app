@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const Analysis = require('../models/Analysis');
+const Analysis = require('./models/Analysis');
 const PDFDocument = require('pdfkit');
 const { exec } = require('child_process');
 const fs = require('fs/promises');
