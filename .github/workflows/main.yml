@@ -177,7 +177,7 @@ jobs:
         vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
         vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
         vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }}
-      env: # Environment variables for Vercel CLI
+      env: 
         VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
         VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
