@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
     LogIn,
     LayoutDashboard,
@@ -13,46 +13,41 @@ import {
     CheckCircle,
     XCircle,
     BookOpen
-} from 'lucide-react';
+} from "lucide-react";
 
 // Main App component responsible for routing
 const App = () => {
-    const [currentPage, setCurrentPage] = useState('login'); // 'login' or 'dashboard'
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [user, setUser] = useState(null); // User object from backend authentication
+    const [userStorage, setUserStorage] = useState({}); // In-memory storage replacement
 
     const handleLogin = (userData) => {
-        // userData should contain { id, username, token } from backend
         setIsAuthenticated(true);
         setUser(userData);
-        localStorage.setItem('userToken', userData.token); // Store token
-        localStorage.setItem('userId', userData.id); // Store user ID
-        localStorage.setItem('username', userData.username); // Store username
-        setCurrentPage('dashboard');
+        // Store in memory instead of localStorage
+        setUserStorage({
+            userToken: userData.token,
+            userId: userData.id,
+            username: userData.username
+        });
     };
 
     const handleLogout = () => {
         setIsAuthenticated(false);
         setUser(null);
-        localStorage.removeItem('userToken'); // Clear token
-        localStorage.removeItem('userId');
-        localStorage.removeItem('username');
-        setCurrentPage('login');
+        setUserStorage({}); // Clear in-memory storage
     };
 
     // Check for existing token on app load
     useEffect(() => {
-        const token = localStorage.getItem('userToken');
-        const userId = localStorage.getItem('userId');
-        const username = localStorage.getItem('username');
-        if (token && userId && username) {
+        const { userToken, userId, username } = userStorage;
+        if (userToken && userId && username) {
             setIsAuthenticated(true);
-            setUser({ id: userId, username: username, token: token });
-            setCurrentPage('dashboard');
+            setUser({ id: userId, username: username, token: userToken });
         }
-    }, []);
+    }, [userStorage]);
 
-    // Simple routing logic
+    // Simple routing logic based on isAuthenticated state
     const renderPage = () => {
         if (!isAuthenticated) {
             return <LoginPage onLogin={handleLogin} />;
@@ -70,23 +65,23 @@ const App = () => {
 
 // Login Page Component
 const LoginPage = ({ onLogin }) => {
-    const [username, setUsername] = useState('');
-    const [password, setPassword] = useState('');
-    const [error, setError] = useState('');
+    const [username, setUsername] = useState("");
+    const [password, setPassword] = useState("");
+    const [error, setError] = useState("");
     const [isRegister, setIsRegister] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
 
-    const API_BASE_URL = 'http://localhost:5000/api'; // Replace with your backend URL for deployment
+    const API_BASE_URL = "http://localhost:5000/api"; // Replace with your backend URL for deployment
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        setError('');
+        setError("");
         setIsLoading(true);
 
         try {
             const endpoint = isRegister ? `${API_BASE_URL}/auth/register` : `${API_BASE_URL}/auth/login`;
             const response = await fetch(endpoint, {
-                method: 'POST',
+                method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                 },
@@ -101,7 +96,7 @@ const LoginPage = ({ onLogin }) => {
                 setError(data.msg || "An error occurred. Please try again.");
             }
         } catch (err) {
-            console.error("Login/Register error:", err);
+            // Handle error without console.error
             setError("Could not connect to server. Please try again later.");
         } finally {
             setIsLoading(false);
@@ -115,7 +110,7 @@ const LoginPage = ({ onLogin }) => {
                     <LogIn className="inline-block mr-2 text-blue-600" size={30} />
                     {isRegister ? "Register" : "Welcome Back"}
                 </h2>
-                <form onSubmit={handleSubmit} className="space-y-6">
+                <div className="space-y-6">
                     <div>
                         <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-1">Username</label>
                         <input
@@ -157,7 +152,7 @@ const LoginPage = ({ onLogin }) => {
                             isRegister ? "Register" : "Log In"
                         )}
                     </button>
-                </form>
+                </div>
                 <p className="mt-6 text-center text-gray-600">
                     {isRegister ? "Already have an account?" : "Don't have an account?"}{" "}
                     <button
@@ -182,11 +177,12 @@ const DashboardPage = ({ user, onLogout }) => {
     const [isLoading, setIsLoading] = useState(false);
     const [analysisHistory, setAnalysisHistory] = useState([]);
     const [editMode, setEditMode] = useState(null); // Stores the ID of the item being edited
+    const [errorMessage, setErrorMessage] = useState(""); // For error handling
 
     const API_BASE_URL = "http://localhost:5000/api"; // Replace with your backend URL for deployment
 
-    // API utility to interact with backend
-    const api = {
+    // API utility object, memoized to prevent re-creation on every render
+    const api = useMemo(() => ({
         // Helper to get authorization headers
         getAuthHeaders: () => ({
             "Content-Type": "application/json",
@@ -263,22 +259,24 @@ const DashboardPage = ({ user, onLogout }) => {
             a.remove();
             window.URL.revokeObjectURL(url);
         }
-    };
+    }), [user.token]); // Removed user.id as it's not used in the API object
+
+    // Memoize fetchHistory to use in useEffect
+    const fetchHistory = useCallback(async () => {
+        try {
+            const history = await api.getHistory();
+            setAnalysisHistory(history);
+            setErrorMessage(""); // Clear any previous errors
+        } catch (error) {
+            setErrorMessage(`Error fetching history: ${error.message}`);
+        }
+    }, [api]); // `fetchHistory` now depends on the `api` object (which is stable due to `useMemo`)
 
     useEffect(() => {
         if (user && user.id && user.token) {
             fetchHistory();
         }
-    }, [user]);
-
-    const fetchHistory = async () => {
-        try {
-            const history = await api.getHistory();
-            setAnalysisHistory(history);
-        } catch (error) {
-            console.error("Error fetching history:", error.message);
-        }
-    };
+    }, [user, fetchHistory]); // Added fetchHistory to dependencies for `react-hooks/exhaustive-deps`
 
     const handleAnalyze = async () => {
         if (!code.trim()) {
@@ -286,16 +284,16 @@ const DashboardPage = ({ user, onLogout }) => {
             return;
         }
         setIsLoading(true);
-        setAnalysisResult(null);
+        setAnalysisResult(null); // Clear previous results
+        setErrorMessage(""); // Clear any previous errors
         try {
             const result = await api.analyzeCode(code);
             setAnalysisResult(result);
-            fetchHistory();
-            setCode("");
-            setEditMode(null);
+            fetchHistory(); // Refresh history with the new entry
+            setCode(""); // Clear textarea after successful analysis
+            setEditMode(null); // Exit edit mode if it was active
         } catch (error) {
-            console.error("Code analysis failed:", error.message);
-            alert(`Failed to analyze code: ${error.message}`);
+            setErrorMessage(`Failed to analyze code: ${error.message}`);
         } finally {
             setIsLoading(false);
         }
@@ -307,33 +305,34 @@ const DashboardPage = ({ user, onLogout }) => {
             return;
         }
         try {
+            // Use the ID from the current analysisResult to download the report
             await api.downloadPDFReport(analysisResult._id || analysisResult.id);
         } catch (error) {
-            console.error("Error downloading PDF:", error.message);
-            alert(`Failed to download PDF report: ${error.message}`);
+            setErrorMessage(`Failed to download PDF report: ${error.message}`);
         }
     };
 
     const handleDeleteAnalysis = async (id) => {
+        // Use a custom modal instead of window.confirm in production
         if (window.confirm("Are you sure you want to delete this analysis?")) {
             try {
                 await api.deleteAnalysis(id);
-                fetchHistory();
+                fetchHistory(); // Refresh history
                 if (analysisResult && (analysisResult._id === id || analysisResult.id === id)) {
-                    setAnalysisResult(null);
+                    setAnalysisResult(null); // Clear current result if deleted
                 }
+                setErrorMessage(""); // Clear any previous errors
             } catch (error) {
-                console.error("Error deleting analysis:", error.message);
-                alert(`Failed to delete analysis: ${error.message}`);
+                setErrorMessage(`Failed to delete analysis: ${error.message}`);
             }
         }
     };
 
     const handleEditClick = (item) => {
-        setEditMode(item._id);
-        setCode(item.originalCode);
-        setActiveTab("analyze");
-        setAnalysisResult(null);
+        setEditMode(item._id); // Store the actual MongoDB _id
+        setCode(item.originalCode); // Load original code into textarea for editing
+        setActiveTab("analyze"); // Switch to analyze tab
+        setAnalysisResult(null); // Clear previous results when editing
     };
 
     const handleUpdateAnalysis = async (id) => {
@@ -342,22 +341,23 @@ const DashboardPage = ({ user, onLogout }) => {
             return;
         }
         setIsLoading(true);
+        setErrorMessage(""); // Clear any previous errors
         try {
             const updatedResult = await api.updateAnalysis(id, code);
             setAnalysisResult(updatedResult);
-            setEditMode(null);
-            setCode("");
-            fetchHistory();
+            setEditMode(null); // Exit edit mode
+            setCode(""); // Clear textarea
+            fetchHistory(); // Refresh history
         } catch (error) {
-            console.error("Error updating analysis:", error.message);
-            alert(`Failed to update analysis: ${error.message}`);
+            setErrorMessage(`Failed to update analysis: ${error.message}`);
         } finally {
             setIsLoading(false);
         }
     };
 
     return (
-        <div className="min-h-screen flex flex-col">
+        <div className="flex flex-col min-h-screen">
+            {/* Header */}
             <header className="bg-white shadow-md p-4 flex justify-between items-center z-10">
                 <h1 className="text-3xl font-extrabold text-blue-700 flex items-center">
                     <BookOpen className="inline-block mr-3 text-blue-600" size={36} />
@@ -375,14 +375,33 @@ const DashboardPage = ({ user, onLogout }) => {
                 </div>
             </header>
 
+            {/* Error Message Display */}
+            {errorMessage && (
+                <div className="mx-6 mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                    <div className="flex items-center">
+                        <AlertTriangle className="mr-2 text-red-500" size={20} />
+                        <span className="text-red-700">{errorMessage}</span>
+                        <button
+                            onClick={() => setErrorMessage("")}
+                            className="ml-auto text-red-500 hover:text-red-700"
+                        >
+                            <XCircle size={20} />
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Main Content Area */}
             <div className="flex flex-1 p-6 space-x-6">
+                {/* Sidebar Navigation */}
                 <nav className="w-64 bg-white p-6 rounded-xl shadow-lg border border-gray-200 h-fit">
                     <ul className="space-y-4">
                         <li>
                             <button
                                 onClick={() => setActiveTab("analyze")}
-                                className={`w-full flex items-center p-3 rounded-lg text-lg font-semibold transition duration-200 ease-in-out ${activeTab === "analyze" ? "bg-blue-600 text-white shadow-md" : "text-gray-700 hover:bg-blue-100 hover:text-blue-700"
-                                    }`}
+                                className={`w-full flex items-center p-3 rounded-lg text-lg font-semibold transition duration-200 ease-in-out ${
+                                    activeTab === "analyze" ? "bg-blue-600 text-white shadow-md" : "text-gray-700 hover:bg-blue-100 hover:text-blue-700"
+                                }`}
                             >
                                 <Code className="mr-3" size={20} />
                                 Analyze Code
@@ -391,8 +410,9 @@ const DashboardPage = ({ user, onLogout }) => {
                         <li>
                             <button
                                 onClick={() => setActiveTab("history")}
-                                className={`w-full flex items-center p-3 rounded-lg text-lg font-semibold transition duration-200 ease-in-out ${activeTab === "history" ? "bg-blue-600 text-white shadow-md" : "text-gray-700 hover:bg-blue-100 hover:text-blue-700"
-                                    }`}
+                                className={`w-full flex items-center p-3 rounded-lg text-lg font-semibold transition duration-200 ease-in-out ${
+                                    activeTab === "history" ? "bg-blue-600 text-white shadow-md" : "text-gray-700 hover:bg-blue-100 hover:text-blue-700"
+                                }`}
                             >
                                 <History className="mr-3" size={20} />
                                 Analysis History
@@ -401,6 +421,7 @@ const DashboardPage = ({ user, onLogout }) => {
                     </ul>
                 </nav>
 
+                {/* Content Panel */}
                 <div className="flex-1 bg-white p-8 rounded-xl shadow-lg border border-gray-200">
                     {activeTab === "analyze" && (
                         <div className="flex flex-col h-full">
@@ -506,7 +527,7 @@ const DashboardPage = ({ user, onLogout }) => {
                                 <div className="space-y-6">
                                     {analysisHistory.map((item) => (
                                         <HistoryItem
-                                            key={item._id}
+                                            key={item._id} // Use _id from MongoDB
                                             item={item}
                                             onDelete={() => handleDeleteAnalysis(item._id)}
                                             onEdit={() => handleEditClick(item)}
@@ -578,7 +599,7 @@ const HistoryItem = ({ item, onDelete, onEdit }) => {
                         <ul className="list-disc list-inside text-red-600 space-y-1">
                             {item.issues.map((issue, index) => (
                                 <li key={index} className="text-sm">
-                                    <span className="font-medium">[{issue.type.toUpperCase()}]</span> {issue.message} (Line: {issue.line || "N/A"})
+                                    <span className="font-semibold">[{issue.type.toUpperCase()}]</span> {issue.message} (Line: {issue.line || "N/A"})
                                 </li>
                             ))}
                         </ul>
@@ -605,25 +626,5 @@ const HistoryItem = ({ item, onDelete, onEdit }) => {
         </div>
     );
 };
-
-// IMPORTANT: These global styling and mounting lines are now handled by frontend/src/index.js
-// Removing them from App.js to avoid conflicts and ensure proper React setup.
-// const styleSheet = `
-//   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-//   body {
-//     font-family: 'Inter', sans-serif;
-//   }
-// `;
-// const styleElement = document.createElement('style');
-// styleElement.innerHTML = styleSheet;
-// document.head.appendChild(styleElement);
-
-// const tailwindScript = document.createElement('script');
-// tailwindScript.src = 'https://cdn.tailwindcss.com';
-// document.head.appendChild(tailwindScript);
-
-// const container = document.getElementById('root');
-// const root = createRoot(container);
-// root.render(<App />);
 
 export default App; // Export App so it can be imported by index.js
