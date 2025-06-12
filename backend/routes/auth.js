@@ -4,11 +4,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User'); // Import the new User model
 
-// Removed the in-memory mockUsers array, as users will now be stored in MongoDB.
-
 // @route   POST api/auth/register
-// @desc    Register user
-// @access  Public
 router.post('/register', async (req, res) => {
   const { username, password } = req.body;
 
@@ -57,8 +53,6 @@ router.post('/register', async (req, res) => {
 });
 
 // @route   POST api/auth/login
-// @desc    Authenticate user & get token
-// @access  Public
 router.post('/login', async (req, res) => {
   const { username, password } = req.body;
 
