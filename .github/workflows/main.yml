@@ -128,10 +128,10 @@ jobs:
         password: ${{ secrets.DOCKER_PASSWORD }}
 
     - name: Tag and Push Backend Docker Image
-      # Replace 'your-dockerhub-username' with your actual Docker Hub username
+      # *** CORRECTED: Replaced 'your-dockerhub-username' with 'jouhu' ***
       run: |
-        docker tag code-checker-backend:latest your-dockerhub-username/code-checker-backend:latest
-        docker push your-dockerhub-username/code-checker-backend:latest
+        docker tag code-checker-backend:latest jouhu/code-checker-backend:latest
+        docker push jouhu/code-checker-backend:latest
 
     - name: Deploy to Render
       # This step uses the Render CLI, which needs to be installed in the CI environment.
@@ -184,7 +184,7 @@ jobs:
         vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
         vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
         vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }}
-      env: 
+      env:
         VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
         VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
