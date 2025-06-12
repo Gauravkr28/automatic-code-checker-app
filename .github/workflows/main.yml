@@ -98,7 +98,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: frontend-docker-image
-        path: frontend-docker-image.tar # Corrected path to artifact for upload
+        path: code-checker-frontend.tar # Corrected path to artifact for upload
 
   # Deployment jobs (These need real deployment logic)
   # They depend on the successful completion of build-and-test jobs.
@@ -128,18 +128,16 @@ jobs:
         password: ${{ secrets.DOCKER_PASSWORD }}
 
     - name: Tag and Push Backend Docker Image
-      # *** CORRECTED: Replaced 'your-dockerhub-username' with 'jouhu' ***
+      # Replaced 'your-dockerhub-username' with 'jouhu'
       run: |
         docker tag code-checker-backend:latest jouhu/code-checker-backend:latest
         docker push jouhu/code-checker-backend:latest
 
     - name: Deploy to Render
       # This step uses the Render CLI, which needs to be installed in the CI environment.
-      # Make sure to install `@renderinc/cli` and set up the RENDER_API_KEY secret.
-      # You'd typically install it globally in a previous step or use a pre-built action.
-      # For simplicity, we'll install it inline for this example.
+      # Make sure to install '@x.render/render-cli' and set up the RENDER_API_KEY secret.
       run: |
-        npm install -g @renderinc/cli
+        npm install -g @x.render/render-cli # Corrected Render CLI package name
         render deploy --serviceId ${{ secrets.RENDER_BACKEND_SERVICE_ID }} --apiKey ${{ secrets.RENDER_API_KEY }}
       env:
         # RENDER_API_KEY will be automatically passed to the 'render' command
