@@ -1,0 +1,142 @@
+name: CI/CD Pipeline - CodeChecker
+
+on:
+  push:
+    branches:
+      - main # Triggers on push to the main branch
+  pull_request:
+    branches:
+      - main # Triggers on pull requests targeting the main branch
+
+jobs:
+  build-and-test-backend:
+    runs-on: ubuntu-latest # Specifies the runner environment
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4 # Action to check out your repository code
+
+    - name: Set up Node.js for backend
+      uses: actions/setup-node@v4 # Action to set up Node.js environment
+      with:
+        node-version: '20' # Specify Node.js version
+        cache: 'npm' # Cache npm dependencies
+        cache-dependency-path: 'backend/package-lock.json' # Path to lock file for caching
+
+    - name: Install backend dependencies
+      run: npm install --prefix backend # Install dependencies only for the backend directory
+
+    - name: Run backend ESLint
+      # This step runs ESLint. If linting fails, the job will fail.
+      # Ensure your backend/.eslintrc.json is configured as desired.
+      run: npm run lint --prefix backend
+
+    - name: Run backend tests (conceptual)
+      # Placeholder for actual backend unit/integration tests.
+      # You would replace `echo "Running backend tests..."` with `npm test --prefix backend`
+      # if you had a test script defined in backend/package.json.
+      run: echo "Running backend tests..."
+
+    - name: Build backend Docker image
+      # Builds the Docker image for the backend using the Dockerfile in ./backend
+      run: docker build -t code-checker-backend:latest ./backend
+
+    # SonarQube Scan (Conceptual - requires SonarQube server and secrets)
+    # This step would typically push analysis results to a SonarQube server.
+    # You'd need a SonarQube server URL, project key, and token configured in your GitHub secrets.
+    # To enable: uncomment, replace 'your-sonar-project-key-backend', and set up SONAR_TOKEN secret.
+    # - name: SonarQube Scan
+    #   uses: SonarSource/sonarcloud-github-action@master
+    #   env:
+    #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    #   with:
+    #     projectKey: 'your-sonar-project-key-backend'
+    #     baseDir: './backend' # Or './' for the whole repo
+
+  build-and-test-frontend:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js for frontend
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: 'frontend/package-lock.json'
+
+    - name: Install frontend dependencies
+      run: npm install --prefix frontend
+
+    - name: Run frontend ESLint
+      # This step runs ESLint for the frontend.
+      run: npm run lint --prefix frontend
+
+    - name: Run frontend tests (conceptual)
+      # Placeholder for actual frontend unit/integration tests.
+      # You would replace `echo "Running frontend tests..."` with `npm test --prefix frontend`
+      run: echo "Running frontend tests..."
+
+    - name: Build frontend Docker image
+      # Builds the Docker image for the frontend using the Dockerfile in ./frontend
+      run: docker build -t code-checker-frontend:latest ./frontend
+
+  # Deployment jobs (Conceptual - these need real deployment logic)
+  # They depend on the successful completion of build-and-test jobs.
+  deploy-backend:
+    needs: build-and-test-backend # This job runs only after backend build/test is successful
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' # Only deploy when pushing to 'main' branch
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Login to Docker Hub (if pushing image)
+      # Uncomment and replace with your Docker registry login details if you plan to push Docker images.
+      # uses: docker/login-action@v3
+      # with:
+      #   username: ${{ secrets.DOCKER_USERNAME }}
+      #   password: ${{ secrets.DOCKER_PASSWORD }}
+      run: echo "Logging into Docker Hub..." # Placeholder for actual login
+
+    - name: Tag and Push Backend Docker Image
+      # Uncomment and replace 'your-dockerhub-username' with your actual Docker Hub username
+      # if you want to push your Docker image to a registry.
+      # run: docker tag code-checker-backend:latest your-dockerhub-username/code-checker-backend:latest && docker push your-dockerhub-username/code-checker-backend:latest
+      run: echo "Tagging and pushing backend Docker image..." # Placeholder
+
+    - name: Deploy to Render (Conceptual)
+      # This step would typically use Render's API or CLI to trigger a new deploy.
+      # You'd need Render API token and service ID configured in your GitHub secrets.
+      # Example with Render CLI (install & configure in CI environment):
+      # - run: npm install -g @renderinc/cli
+      # - run: render deploy --serviceId ${{ secrets.RENDER_BACKEND_SERVICE_ID }}
+      run: echo "Deploying backend to Render..." # Placeholder
+
+  deploy-frontend:
+    needs: build-and-test-frontend # This job runs only after frontend build/test is successful
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' # Only deploy when pushing to 'main' branch
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Vercel CLI
+      run: npm install -g vercel # Install Vercel CLI in the runner
+
+    - name: Deploy to Vercel (Conceptual)
+      # You'd need Vercel API token and org/project IDs in secrets.
+      # Ensure frontend build directory exists (default is 'build' for Create React App)
+      # The 'vercel' command automatically deploys the 'build' folder.
+      # To enable: uncomment the vercel commands and set up VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID secrets.
+      # - run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+      # - run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+      # - run: vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }}
+      run: |
+        echo "Deploying frontend to Vercel..."
+        # Example Vercel command structure (needs actual setup on Vercel)
+        # vercel --token=${{ secrets.VERCEL_TOKEN }} --prod --confirm
+      env: # Environment variables for Vercel CLI
+        VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+        VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
