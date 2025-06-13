@@ -17,8 +17,8 @@ import {
 } from "lucide-react";
 
 // --- Global Constants (for easier management) ---
-const API_BASE_URL = "http://localhost:5000/api"; // IMPORTANT: Replace with your deployed backend URL in production!
-
+// const API_BASE_URL = "http://localhost:5000/api"; // IMPORTANT: Replace with your deployed backend URL in production!
+const API_BASE_URL = "https://code-checker-backend.onrender.com/api";
 // --- Custom Modal Component (replaces window.confirm) ---
 const CustomModal = ({ isOpen, title, message, onConfirm, onCancel, confirmText = "Confirm", cancelText = "Cancel" }) => {
     if (!isOpen) return null;
