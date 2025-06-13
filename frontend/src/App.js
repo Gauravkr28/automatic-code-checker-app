@@ -12,10 +12,45 @@ import {
     Lightbulb,
     CheckCircle,
     XCircle,
-    BookOpen
+    BookOpen,
+    HelpCircle // Added for modal icon
 } from "lucide-react";
 
-// Main App component responsible for routing
+// --- Global Constants (for easier management) ---
+const API_BASE_URL = "http://localhost:5000/api"; // IMPORTANT: Replace with your deployed backend URL in production!
+
+// --- Custom Modal Component (replaces window.confirm) ---
+const CustomModal = ({ isOpen, title, message, onConfirm, onCancel, confirmText = "Confirm", cancelText = "Cancel" }) => {
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm border border-gray-200">
+                <div className="flex items-center mb-4">
+                    <HelpCircle className="text-blue-500 mr-3" size={24} />
+                    <h3 className="text-xl font-bold text-gray-900">{title}</h3>
+                </div>
+                <p className="text-gray-700 mb-6">{message}</p>
+                <div className="flex justify-end space-x-3">
+                    <button
+                        onClick={onCancel}
+                        className="px-5 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition duration-150 ease-in-out font-medium"
+                    >
+                        {cancelText}
+                    </button>
+                    <button
+                        onClick={onConfirm}
+                        className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition duration-150 ease-in-out shadow-md font-medium"
+                    >
+                        {confirmText}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// --- Main App Component ---
 const App = () => {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [user, setUser] = useState(null); // User object from backend authentication
@@ -24,7 +59,7 @@ const App = () => {
     const handleLogin = (userData) => {
         setIsAuthenticated(true);
         setUser(userData);
-        // Store in memory instead of localStorage
+        // Store user data in memory after successful login
         setUserStorage({
             userToken: userData.token,
             userId: userData.id,
@@ -35,10 +70,10 @@ const App = () => {
     const handleLogout = () => {
         setIsAuthenticated(false);
         setUser(null);
-        setUserStorage({}); // Clear in-memory storage
+        setUserStorage({}); // Clear in-memory storage on logout
     };
 
-    // Check for existing token on app load
+    // Check for existing token in in-memory storage on app load
     useEffect(() => {
         const { userToken, userId, username } = userStorage;
         if (userToken && userId && username) {
@@ -63,7 +98,7 @@ const App = () => {
     );
 };
 
-// Login Page Component
+// --- Login Page Component ---
 const LoginPage = ({ onLogin }) => {
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
@@ -71,16 +106,15 @@ const LoginPage = ({ onLogin }) => {
     const [isRegister, setIsRegister] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
 
-    const API_BASE_URL = "http://localhost:5000/api"; // Replace with your backend URL for deployment
-
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError("");
         setIsLoading(true);
 
         try {
-            const endpoint = isRegister ? `${API_BASE_URL}/auth/register` : `${API_BASE_URL}/auth/login`;
-            const response = await fetch(endpoint, {
+            const authEndpoint = isRegister ? `${API_BASE_URL}/auth/register` : `${API_BASE_URL}/auth/login`;
+            console.log("1. Sending request to:", authEndpoint);
+            const authResponse = await fetch(authEndpoint, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -88,15 +122,53 @@ const LoginPage = ({ onLogin }) => {
                 body: JSON.stringify({ username, password }),
             });
 
-            const data = await response.json();
+            const authData = await authResponse.json();
+            console.log("2. Auth response received:", authResponse);
+            console.log("3. Auth data parsed (from register/login):", authData); // <<< IMPORTANT LOG
 
-            if (response.ok) {
-                onLogin({ id: data.user.id, username: data.user.username, token: data.token });
-            } else {
-                setError(data.msg || "An error occurred. Please try again.");
+            if (!authResponse.ok) {
+                setError(authData.msg || "Authentication failed. Please check credentials.");
+                console.error("4. Authentication failed (register/login) response:", authData);
+                return;
             }
+
+            // Successfully authenticated, now check for token and fetch user details
+            const token = authData.token;
+            console.log("5. Token received:", token);
+
+            if (!token) {
+                setError("Authentication successful, but no token received in response.");
+                console.error("6. Error: No token in authData:", authData);
+                return;
+            }
+
+            // Fetch user details using the received token
+            console.log("7. Fetching user details with token...");
+            const userDetailsResponse = await fetch(`${API_BASE_URL}/auth/user`, {
+                method: "GET",
+                headers: {
+                    "Authorization": `Bearer ${token}`,
+                },
+            });
+
+            const userDetails = await userDetailsResponse.json();
+            console.log("8. User details response received:", userDetailsResponse);
+            console.log("9. User details parsed:", userDetails); // <<< IMPORTANT LOG
+
+            if (userDetailsResponse.ok) {
+                // Pass both token and user details to onLogin
+                onLogin({ id: userDetails._id || userDetails.id, username: userDetails.username, token: token });
+                console.log("10. Login successful, user data sent to App:", { id: userDetails._id || userDetails.id, username: userDetails.username, token: token });
+            } else {
+                // If fetching user details fails after token, something is wrong with token or /user route
+                setError(userDetails.msg || "Could not retrieve user details after authentication.");
+                console.error("11. Error retrieving user details:", userDetails);
+                // Optionally log out locally to prevent invalid state if /user route is critical
+                onLogin(null);
+            }
+
         } catch (err) {
-            // Handle error without console.error
+            console.error("12. General fetch error (network/parsing):", err);
             setError("Could not connect to server. Please try again later.");
         } finally {
             setIsLoading(false);
@@ -105,7 +177,7 @@ const LoginPage = ({ onLogin }) => {
 
     return (
         <div className="flex items-center justify-center min-h-screen p-4">
-            <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md border border-gray-200">
+            <form onSubmit={handleSubmit} className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md border border-gray-200">
                 <h2 className="text-3xl font-bold text-center text-gray-900 mb-8">
                     <LogIn className="inline-block mr-2 text-blue-600" size={30} />
                     {isRegister ? "Register" : "Welcome Back"}
@@ -164,12 +236,12 @@ const LoginPage = ({ onLogin }) => {
                         {isRegister ? "Login here" : "Register here"}
                     </button>
                 </p>
-            </div>
+            </form>
         </div>
     );
 };
 
-// Dashboard Page Component
+// --- Dashboard Page Component ---
 const DashboardPage = ({ user, onLogout }) => {
     const [activeTab, setActiveTab] = useState("analyze"); // "analyze" or "history"
     const [code, setCode] = useState("");
@@ -177,9 +249,12 @@ const DashboardPage = ({ user, onLogout }) => {
     const [isLoading, setIsLoading] = useState(false);
     const [analysisHistory, setAnalysisHistory] = useState([]);
     const [editMode, setEditMode] = useState(null); // Stores the ID of the item being edited
-    const [errorMessage, setErrorMessage] = useState(""); // For error handling
+    const [errorMessage, setErrorMessage] = useState(""); // For general error messages
 
-    const API_BASE_URL = "http://localhost:5000/api"; // Replace with your backend URL for deployment
+    // State for the custom confirmation modal
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [modalAction, setModalAction] = useState(null); // Function to execute on confirm
+    const [modalItemId, setModalItemId] = useState(null); // Item ID for delete/update
 
     // API utility object, memoized to prevent re-creation on every render
     const api = useMemo(() => ({
@@ -196,7 +271,7 @@ const DashboardPage = ({ user, onLogout }) => {
                 body: JSON.stringify({ code: codeContent }),
             });
             if (!response.ok) {
-                const errorData = await response.json(); // Attempt to parse JSON error
+                const errorData = await response.json();
                 throw new Error(errorData.msg || "Failed to analyze code");
             }
             return response.json();
@@ -259,39 +334,38 @@ const DashboardPage = ({ user, onLogout }) => {
             a.remove();
             window.URL.revokeObjectURL(url);
         }
-    }), [user.token]); // Removed user.id as it's not used in the API object
+    }), [user.token]);
 
-    // Memoize fetchHistory to use in useEffect
     const fetchHistory = useCallback(async () => {
         try {
             const history = await api.getHistory();
             setAnalysisHistory(history);
-            setErrorMessage(""); // Clear any previous errors
+            setErrorMessage("");
         } catch (error) {
             setErrorMessage(`Error fetching history: ${error.message}`);
         }
-    }, [api]); // `fetchHistory` now depends on the `api` object (which is stable due to `useMemo`)
+    }, [api]);
 
     useEffect(() => {
         if (user && user.id && user.token) {
             fetchHistory();
         }
-    }, [user, fetchHistory]); // Added fetchHistory to dependencies for `react-hooks/exhaustive-deps`
+    }, [user, fetchHistory]);
 
     const handleAnalyze = async () => {
         if (!code.trim()) {
-            alert("Please paste code to analyze.");
+            setErrorMessage("Please paste code to analyze.");
             return;
         }
         setIsLoading(true);
-        setAnalysisResult(null); // Clear previous results
-        setErrorMessage(""); // Clear any previous errors
+        setAnalysisResult(null);
+        setErrorMessage("");
         try {
             const result = await api.analyzeCode(code);
             setAnalysisResult(result);
-            fetchHistory(); // Refresh history with the new entry
-            setCode(""); // Clear textarea after successful analysis
-            setEditMode(null); // Exit edit mode if it was active
+            fetchHistory();
+            setCode("");
+            setEditMode(null);
         } catch (error) {
             setErrorMessage(`Failed to analyze code: ${error.message}`);
         } finally {
@@ -301,53 +375,63 @@ const DashboardPage = ({ user, onLogout }) => {
 
     const handleDownloadPDF = async () => {
         if (!analysisResult) {
-            alert("Please analyze code first to generate a report.");
+            setErrorMessage("Please analyze code first to generate a report.");
             return;
         }
         try {
-            // Use the ID from the current analysisResult to download the report
-            await api.downloadPDFReport(analysisResult._id || analysisResult.id);
+            await api.downloadPDFReport(analysisResult._id);
+            setErrorMessage("");
         } catch (error) {
             setErrorMessage(`Failed to download PDF report: ${error.message}`);
         }
     };
 
-    const handleDeleteAnalysis = async (id) => {
-        // Use a custom modal instead of window.confirm in production
-        if (window.confirm("Are you sure you want to delete this analysis?")) {
-            try {
-                await api.deleteAnalysis(id);
-                fetchHistory(); // Refresh history
-                if (analysisResult && (analysisResult._id === id || analysisResult.id === id)) {
-                    setAnalysisResult(null); // Clear current result if deleted
-                }
-                setErrorMessage(""); // Clear any previous errors
-            } catch (error) {
-                setErrorMessage(`Failed to delete analysis: ${error.message}`);
+    const confirmDeleteAnalysis = (id) => {
+        setModalItemId(id);
+        setModalAction(() => () => performDeleteAnalysis(id));
+        setIsModalOpen(true);
+    };
+
+    const performDeleteAnalysis = async (id) => {
+        setIsLoading(true);
+        setErrorMessage("");
+        try {
+            await api.deleteAnalysis(id);
+            fetchHistory();
+            if (analysisResult && analysisResult._id === id) {
+                setAnalysisResult(null);
             }
+            setEditMode(null);
+            setCode("");
+            setIsModalOpen(false);
+        } catch (error) {
+            setErrorMessage(`Failed to delete analysis: ${error.message}`);
+        } finally {
+            setIsLoading(false);
         }
     };
 
     const handleEditClick = (item) => {
-        setEditMode(item._id); // Store the actual MongoDB _id
-        setCode(item.originalCode); // Load original code into textarea for editing
-        setActiveTab("analyze"); // Switch to analyze tab
-        setAnalysisResult(null); // Clear previous results when editing
+        setEditMode(item._id);
+        setCode(item.originalCode);
+        setActiveTab("analyze");
+        setAnalysisResult(null);
+        setErrorMessage("");
     };
 
     const handleUpdateAnalysis = async (id) => {
         if (!code.trim()) {
-            alert("Code cannot be empty for update.");
+            setErrorMessage("Code cannot be empty for update.");
             return;
         }
         setIsLoading(true);
-        setErrorMessage(""); // Clear any previous errors
+        setErrorMessage("");
         try {
             const updatedResult = await api.updateAnalysis(id, code);
             setAnalysisResult(updatedResult);
-            setEditMode(null); // Exit edit mode
-            setCode(""); // Clear textarea
-            fetchHistory(); // Refresh history
+            setEditMode(null);
+            setCode("");
+            fetchHistory();
         } catch (error) {
             setErrorMessage(`Failed to update analysis: ${error.message}`);
         } finally {
@@ -364,7 +448,7 @@ const DashboardPage = ({ user, onLogout }) => {
                     CodeChecker & Enhancer
                 </h1>
                 <div className="flex items-center space-x-4">
-                    <span className="text-lg font-medium text-gray-700">Welcome, {user?.username || "Guest"}!</span>
+                    {user?.username && <span className="text-lg font-medium text-gray-700">Welcome, {user.username}!</span>}
                     <button
                         onClick={onLogout}
                         className="flex items-center px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition duration-300 ease-in-out shadow-md hover:shadow-lg"
@@ -527,9 +611,9 @@ const DashboardPage = ({ user, onLogout }) => {
                                 <div className="space-y-6">
                                     {analysisHistory.map((item) => (
                                         <HistoryItem
-                                            key={item._id} // Use _id from MongoDB
+                                            key={item._id}
                                             item={item}
-                                            onDelete={() => handleDeleteAnalysis(item._id)}
+                                            onDelete={() => confirmDeleteAnalysis(item._id)}
                                             onEdit={() => handleEditClick(item)}
                                         />
                                     ))}
@@ -543,11 +627,31 @@ const DashboardPage = ({ user, onLogout }) => {
                     )}
                 </div>
             </div>
+
+            {/* Custom Delete Confirmation Modal */}
+            <CustomModal
+                isOpen={isModalOpen}
+                title="Confirm Deletion"
+                message="Are you sure you want to delete this analysis? This action cannot be undone."
+                onConfirm={() => {
+                    if (modalAction) modalAction();
+                    setIsModalOpen(false);
+                    setModalAction(null);
+                    setModalItemId(null);
+                }}
+                onCancel={() => {
+                    setIsModalOpen(false);
+                    setModalAction(null);
+                    setModalItemId(null);
+                }}
+                confirmText="Delete"
+                cancelText="Cancel"
+            />
         </div>
     );
 };
 
-// History Item Component
+// --- History Item Component ---
 const HistoryItem = ({ item, onDelete, onEdit }) => {
     const [showCode, setShowCode] = useState(false);
 
@@ -627,4 +731,4 @@ const HistoryItem = ({ item, onDelete, onEdit }) => {
     );
 };
 
-export default App; // Export App so it can be imported by index.js
+export default App;

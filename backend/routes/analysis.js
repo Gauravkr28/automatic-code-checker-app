@@ -34,7 +34,7 @@ const authMiddleware = (req, res, next) => {
         req.user = decoded.user; // Attach user info from token to request
         next();
     } catch (err) {
-        logger.error('Token verification failed:', err.message);
+        logger.error('Token verification failed:', err.message); // Using logger
         res.status(401).json({ msg: 'Token is not valid' });
     }
 };
@@ -55,23 +55,30 @@ async function runStaticAnalysis(codeContent) {
         const tempFilePath = path.join(tempDir, 'user_code.js');
         await fs.writeFile(tempFilePath, codeContent);
 
-        const eslintCliPath = path.join(__dirname, '../../node_modules/.bin/eslint'); // Adjusted path
-        const eslintConfigPath = path.join(__dirname, '../../.eslintrc.json'); // Adjusted path
+        // --- CORRECTED PATHS FOR ESLint CLI AND CONFIG ---
+        // __dirname is backend/routes, so '../' goes to backend/
+        const eslintCliPath = path.join(__dirname, '../node_modules/.bin/eslint');
+        const eslintConfigPath = path.join(__dirname, '../.eslintrc.json');
+        // --------------------------------------------------
 
         const command = `${eslintCliPath} --format json --config "${eslintConfigPath}" "${tempFilePath}" --no-error-on-unmatched-pattern`;
+
+        logger.info(`Running ESLint command: ${command}`); // Log the command for debugging
 
         let stdout = '';
         let stderr = '';
         try {
             const { stdout: execStdout, stderr: execStderr } = await new Promise((resolve) => {
                 exec(command, { timeout: 15000 }, (error, stdout, stderr) => {
+                    // ESLint exits with error code if linting issues are found, but stdout still contains the JSON report.
+                    // We resolve the promise here so that the parsing logic can proceed.
                     resolve({ stdout, stderr });
                 });
             });
             stdout = execStdout;
             stderr = execStderr;
         } catch (execError) {
-            logger.error('ESLint CLI execution error:', execError);
+            logger.error('ESLint CLI execution error:', execError); // Using logger
             issues.push({
                 id: 'eslint-cli-error',
                 type: 'error',
@@ -82,14 +89,14 @@ async function runStaticAnalysis(codeContent) {
         }
 
         if (stderr) {
-            logger.warn('ESLint stderr output (non-JSON):', stderr);
+            logger.warn('ESLint stderr output (non-JSON):', stderr); // Using logger
         }
 
         let parsedEslintReport;
         try {
             parsedEslintReport = JSON.parse(stdout.trim());
         } catch (parseError) {
-            logger.error('Failed to parse ESLint JSON output (raw output below):', stdout, parseError);
+            logger.error('Failed to parse ESLint JSON output (raw output below):', stdout, parseError); // Using logger
             issues.push({
                 id: 'analysis-parse-error',
                 type: 'error',
@@ -121,7 +128,7 @@ async function runStaticAnalysis(codeContent) {
                 });
             });
         } else {
-            logger.warn('ESLint returned valid JSON but with an unexpected structure for messages:', parsedEslintReport);
+            logger.warn('ESLint returned valid JSON but with an unexpected structure for messages:', parsedEslintReport); // Using logger
             issues.push({
                 id: 'eslint-output-structure-invalid',
                 type: 'warning',
@@ -150,7 +157,7 @@ async function runStaticAnalysis(codeContent) {
         }
 
     } catch (err) {
-        logger.error('An unexpected error occurred in runStaticAnalysis (outer catch):', err);
+        logger.error('An unexpected error occurred in runStaticAnalysis (outer catch):', err); // Using logger
         issues.push({
             id: 'internal-analysis-failure',
             type: 'error',
@@ -160,7 +167,7 @@ async function runStaticAnalysis(codeContent) {
     } finally {
         if (tempDir) {
             await fs.rm(tempDir, { recursive: true, force: true }).catch(cleanupErr => {
-                logger.error('Failed to clean up temporary directory:', cleanupErr);
+                logger.error('Failed to clean up temporary directory:', cleanupErr); // Using logger
             });
         }
     }
@@ -169,11 +176,9 @@ async function runStaticAnalysis(codeContent) {
 }
 
 // @route   POST api/analysis
-// @desc    Run static analysis on code and save results
-// @access  Private
 router.post('/', authMiddleware, async (req, res) => {
     const { code } = req.body;
-    const userId = req.user.id; // User ID from JWT payload
+    const userId = req.user.id;
 
     if (!code) {
         return res.status(400).json({ msg: 'Code is required for analysis' });
@@ -191,9 +196,9 @@ router.post('/', authMiddleware, async (req, res) => {
 
         await newAnalysis.save();
 
-        res.status(201).json(newAnalysis); // Use 201 for resource creation
+        res.json(newAnalysis);
     } catch (err) {
-        logger.error('Error saving analysis to DB or in analysis route:', err);
+        logger.error('Error saving analysis to DB or in analysis route:', err); // Using logger
 
         let clientErrorMessage = 'An internal server error occurred during analysis.';
 
@@ -215,26 +220,22 @@ router.post('/', authMiddleware, async (req, res) => {
 });
 
 // @route   GET api/analysis/history
-// @desc    Get all analysis history for the authenticated user
-// @access  Private
 router.get('/history', authMiddleware, async (req, res) => {
     try {
         const analysisHistory = await Analysis.find({ userId: req.user.id }).sort({ timestamp: -1 });
         res.json(analysisHistory);
     } catch (err) {
-        logger.error('Error fetching analysis history:', err);
+        logger.error('Error fetching analysis history:', err); // Using logger
         res.status(500).json({ msg: `Failed to fetch history: ${err.message}` });
     }
 });
 
 // @route   GET api/analysis/report/:id
-// @desc    Generate a PDF report for a specific analysis
-// @access  Private
 router.get('/report/:id', authMiddleware, async (req, res) => {
     try {
         const analysis = await Analysis.findById(req.params.id);
 
-        if (!analysis || analysis.userId.toString() !== req.user.id) { // Compare userId as string
+        if (!analysis || analysis.userId.toString() !== req.user.id) {
             return res.status(404).json({ msg: 'Analysis not found or not authorized' });
         }
 
@@ -284,14 +285,12 @@ router.get('/report/:id', authMiddleware, async (req, res) => {
         doc.end();
 
     } catch (err) {
-        logger.error('Error generating PDF report:', err);
+        logger.error('Error generating PDF report:', err); // Using logger
         res.status(500).json({ msg: `Failed to generate report: ${err.message}` });
     }
 });
 
 // @route   PUT api/analysis/:id
-// @desc    Update an existing analysis entry
-// @access  Private
 router.put('/:id', authMiddleware, async (req, res) => {
     const { code } = req.body;
     const userId = req.user.id;
@@ -303,7 +302,7 @@ router.put('/:id', authMiddleware, async (req, res) => {
     try {
         const analysis = await Analysis.findById(req.params.id);
 
-        if (!analysis || analysis.userId.toString() !== userId) { // Compare userId as string
+        if (!analysis || analysis.userId.toString() !== userId) {
             return res.status(404).json({ msg: 'Analysis not found or not authorized' });
         }
 
@@ -312,29 +311,27 @@ router.put('/:id', authMiddleware, async (req, res) => {
         analysis.originalCode = code;
         analysis.issues = issues;
         analysis.suggestions = suggestions;
-        analysis.timestamp = new Date(); // Update timestamp on modification
+        analysis.timestamp = new Date();
 
         await analysis.save();
 
         res.json(analysis);
 
     } catch (err) {
-        logger.error('Error updating analysis:', err);
+        logger.error('Error updating analysis:', err); // Using logger
         res.status(500).json({ msg: `Failed to update analysis: ${err.message}` });
     }
 });
 
 
 // @route   DELETE api/analysis/:id
-// @desc    Delete an analysis entry
-// @access  Private
 router.delete('/:id', authMiddleware, async (req, res) => {
     const userId = req.user.id;
 
     try {
         const analysis = await Analysis.findById(req.params.id);
 
-        if (!analysis || analysis.userId.toString() !== userId) { // Compare userId as string
+        if (!analysis || analysis.userId.toString() !== userId) {
             return res.status(404).json({ msg: 'Analysis not found or not authorized' });
         }
 
@@ -342,7 +339,7 @@ router.delete('/:id', authMiddleware, async (req, res) => {
 
         res.json({ msg: 'Analysis removed' });
     } catch (err) {
-        logger.error('Error deleting analysis:', err);
+        logger.error('Error deleting analysis:', err); // Using logger
         res.status(500).json({ msg: `Failed to delete analysis: ${err.message}` });
     }
 });

@@ -3,7 +3,7 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { check, validationResult } = require('express-validator');
-const User = require('../models/Users'); // Corrected import
+const User = require('../models/Users');
 const winston = require('winston');
 
 const logger = winston.createLogger({
@@ -13,6 +13,30 @@ const logger = winston.createLogger({
         new winston.transports.Console(),
     ],
 });
+
+// Middleware to protect routes (authenticates JWT) - DEFINED HERE FOR REUSABILITY WITHIN THIS FILE
+const authMiddleware = (req, res, next) => {
+    // Get token from header
+    const token = req.header('Authorization')?.split(' ')[1];
+
+    // Check if no token
+    if (!token) {
+        // Return JSON error response to prevent SyntaxError on frontend
+        return res.status(401).json({ msg: 'No token, authorization denied' });
+    }
+
+    // Verify token
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        req.user = decoded.user; // Attach user info from token to request
+        next();
+    } catch (err) {
+        logger.error('Token verification failed:', err.message);
+        // Return JSON error response
+        res.status(401).json({ msg: 'Token is not valid' });
+    }
+};
+
 
 // @route   POST api/auth/register
 // @desc    Register user
@@ -60,12 +84,12 @@ router.post(
                 { expiresIn: '1h' }, // Token expires in 1 hour
                 (err, token) => {
                     if (err) throw err;
-                    res.json({ token });
+                    res.json({ token, user: { id: user.id, username: user.username } }); // Include user data for frontend
                 }
             );
         } catch (err) {
             logger.error('Error in user registration:', err.message);
-            res.status(500).send('Server Error');
+            res.status(500).json({ msg: 'Server Error' }); // Ensure JSON response
         }
     }
 );
@@ -112,12 +136,12 @@ router.post(
                 { expiresIn: '1h' },
                 (err, token) => {
                     if (err) throw err;
-                    res.json({ token });
+                    res.json({ token, user: { id: user.id, username: user.username } }); // Include user data for frontend
                 }
             );
         } catch (err) {
             logger.error('Error in user login:', err.message);
-            res.status(500).send('Server Error');
+            res.status(500).json({ msg: 'Server Error' }); // Ensure JSON response
         }
     }
 );
@@ -125,16 +149,18 @@ router.post(
 // @route   GET api/auth/user
 // @desc    Get authenticated user (using token)
 // @access  Private
-router.get('/user', async (req, res) => {
-    // This route needs authMiddleware but I'm placing it here for completeness
-    // You would typically have authMiddleware applied globally or to specific routes in server.js
-    // For now, assume a separate middleware handles token verification for this route.
+// IMPORTANT: authMiddleware IS NOW APPLIED HERE!
+router.get('/user', authMiddleware, async (req, res) => {
     try {
+        // req.user.id is now guaranteed to exist due to authMiddleware
         const user = await User.findById(req.user.id).select('-password'); // Exclude password
+        if (!user) {
+            return res.status(404).json({ msg: 'User not found' }); // User might have been deleted
+        }
         res.json(user);
     } catch (err) {
-        logger.error('Error fetching authenticated user:', err.message);
-        res.status(500).send('Server Error');
+        logger.error('Error fetching authenticated user (auth/user route):', err.message);
+        res.status(500).json({ msg: 'Server Error fetching user details' }); // Ensure JSON response
     }
 });
 
